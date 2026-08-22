@@ -27,6 +27,8 @@ app.use(
     credentials: true, // required so the httpOnly refresh cookie is sent/received
   })
 );
+
+
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 

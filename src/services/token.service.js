@@ -37,7 +37,7 @@ const REFRESH_COOKIE_NAME = 'wisdom_refresh';
 const refreshCookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
+  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
   maxAge: REFRESH_TOKEN_TTL_MS,
   path: '/api/auth', // only sent to auth endpoints (refresh/logout)
 };
