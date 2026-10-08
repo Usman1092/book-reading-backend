@@ -28,3 +28,14 @@ pool.on('error', (err) => {
 });
 
 module.exports = pool;
+
+
+
+// db.js
+// import pg from 'pg';
+// const pool = new pg.Pool({
+//   connectionString: process.env.DATABASE_URL, // Pooled wala URL
+//   max: 10, // Neon free ke liye 10 se zyada mat rakho
+//   idleTimeoutMillis: 10000,
+//   ssl: true
+// });

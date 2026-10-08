@@ -293,6 +293,11 @@ async function deleteFromB2(key) {
   );
 }
 
+function getCdnUrl(key) {
+  const cdnBase = process.env.B2_CDN_URL || "https://book-cdn.best4usmanali.workers.dev";
+  // key = books/xxxx.pdf
+  return `${cdnBase}/${key}`;
+}
 
 
 module.exports = {
@@ -306,6 +311,7 @@ module.exports = {
   bookAbsolutePath,
   deleteIfExists,
   USE_B2,
+  getCdnUrl
  
 };
 

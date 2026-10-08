@@ -53,7 +53,31 @@ class BadRequestError extends Error {
 }
 
 // --- Public ---
+  // NAYA FUNCTION: Tez PDF delivery
+async function readBook(req, res) {
+  const book = await bookModel.findByIdPublic(req.params.id);
+  if (!book || !book.is_active) throw new NotFoundError('Book not found.');
 
+  // Yahan aap check kar sakte ho user ka access (full ya preview)
+  // Filhal hum full access de rahe hain
+  const accessLevel = req.query.preview === 'true' ? 'preview' : 'full';
+
+  if (accessLevel === 'full') {
+    // TEZ TAREEQA: Seedha Cloudflare CDN link do, backend se download nahi karo
+    const cdnUrl = pdfDeliveryService.getCdnUrlForBook(book);
+    return res.json({ 
+      url: cdnUrl,
+      pageCount: book.page_count,
+      accessLevel: 'full'
+    });
+  } else {
+    // Preview ke liye purana tareeqa (3 pages)
+    const buffer = await pdfDeliveryService.getDeliverableBuffer(book, 'preview');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline');
+    return res.send(buffer);
+  }
+}
 async function list(req, res) {
   const { search, categoryId, sort, page, pageSize } = req.query;
   const result = await bookModel.listPublic({
@@ -213,63 +237,33 @@ async function update(req, res) {
   // Replacing the PDF: validate, compute new page count, delete the old file.
   if (pdfFile) {
   let pageCount;
-
-  try {
-    const result =
-  await pdfService.readPdfAndGetPageCount(
-    pdfFile.path
-  );
-
-pageCount = result.pageCount;
-
-newPdfKey =
-  await uploadPdfToB2(result.bytes);
-  } catch (err) {
-    storageService.deleteIfExists(
-      pdfFile.path
-    );
-
-    throw new BadRequestError(
-      'The uploaded file is not a valid PDF.'
-    );
-  }
-
   let newPdfKey;
 
   try {
-    newPdfKey =
-      await uploadPdfToB2(
-        pdfFile.path
-      );
-  } catch (err) {
-    storageService.deleteIfExists(
+    const result = await pdfService.readPdfAndGetPageCount(
       pdfFile.path
     );
 
-    console.error(
-      'Failed to upload replacement PDF to Backblaze B2:',
-      err
-    );
+    pageCount = result.pageCount;
 
-    throw new Error(
-      'Failed to store the replacement PDF. Please try again.'
+    newPdfKey = await uploadPdfToB2(result.bytes);
+
+    console.log('Replacement PDF uploaded to B2:', newPdfKey);
+  } catch (err) {
+    storageService.deleteIfExists(pdfFile.path);
+
+    console.error('PDF replacement/upload error:', err);
+
+    throw new BadRequestError(
+      'Failed to process and store the replacement PDF.'
     );
   }
 
-  // Remove temporary local copy.
-  storageService.deleteIfExists(
-    pdfFile.path
-  );
+  storageService.deleteIfExists(pdfFile.path);
 
-  // Delete old PDF from B2.
-  if (
-    existing.pdf_path &&
-    storageService.USE_B2
-  ) {
+  if (existing.pdf_path && storageService.USE_B2) {
     try {
-      await storageService.deleteFromB2(
-        existing.pdf_path
-      );
+      await storageService.deleteFromB2(existing.pdf_path);
     } catch (err) {
       console.error(
         'Failed to delete old PDF from B2:',
@@ -281,10 +275,82 @@ newPdfKey =
   fields.pdf_path = newPdfKey;
   fields.page_count = pageCount;
 
-  pdfDeliveryService.invalidatePreviewCache(
-    existing.id
-  );
+  pdfDeliveryService.invalidatePreviewCache(existing.id);
 }
+//   if (pdfFile) {
+//   let pageCount;
+
+//   try {
+//     const result =
+//   await pdfService.readPdfAndGetPageCount(
+//     pdfFile.path
+//   );
+
+// pageCount = result.pageCount;
+// let newPdfKey;
+// newPdfKey =
+//   await uploadPdfToB2(result.bytes);
+//   } catch (err) {
+//     storageService.deleteIfExists(
+//       pdfFile.path
+//     );
+
+//     throw new BadRequestError(
+//       'The uploaded file is not a valid PDF.'
+//     );
+//   }
+
+//   // 
+
+//   try {
+//     newPdfKey =
+//       await uploadPdfToB2(
+//         pdfFile.path
+//       );
+//   } catch (err) {
+//     storageService.deleteIfExists(
+//       pdfFile.path
+//     );
+
+//     console.error(
+//       'Failed to upload replacement PDF to Backblaze B2:',
+//       err
+//     );
+
+//     throw new Error(
+//       'Failed to store the replacement PDF. Please try again.'
+//     );
+//   }
+
+//   // Remove temporary local copy.
+//   storageService.deleteIfExists(
+//     pdfFile.path
+//   );
+
+//   // Delete old PDF from B2.
+//   if (
+//     existing.pdf_path &&
+//     storageService.USE_B2
+//   ) {
+//     try {
+//       await storageService.deleteFromB2(
+//         existing.pdf_path
+//       );
+//     } catch (err) {
+//       console.error(
+//         'Failed to delete old PDF from B2:',
+//         err
+//       );
+//     }
+//   }
+
+//   fields.pdf_path = newPdfKey;
+//   fields.page_count = pageCount;
+
+//   pdfDeliveryService.invalidatePreviewCache(
+//     existing.id
+//   );
+// }
 
   if (coverFile) {
     fields.cover_path = path.join('covers', path.basename(coverFile.path));
@@ -364,5 +430,8 @@ async function remove(req, res) {
   res.json({
     message: 'Book deleted.',
   });
+
+
+
 }
-module.exports = { list, getOne, create, update, remove };
+module.exports = { list, getOne, create, update, remove, readBook };

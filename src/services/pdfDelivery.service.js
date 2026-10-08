@@ -385,6 +385,150 @@
 
 
 // src/services/pdfDelivery.service.js
+//THIS IS THE CODE THAT DOWNLOAD PDF FROM B2backBlaze and then render on FrontEnd.
+// const fs = require('fs');
+// const path = require('path');
+// const { PDFDocument } = require('pdf-lib');
+// const storageService = require('./storage.service');
+
+// const PREVIEWS_DIR = path.join(
+//   storageService.STORAGE_ROOT,
+//   'previews'
+// );
+
+// fs.mkdirSync(PREVIEWS_DIR, { recursive: true });
+
+// function previewCachePath(bookId, allowedPages) {
+//   return path.join(
+//     PREVIEWS_DIR,
+//     `${bookId}-${allowedPages}.pdf`
+//   );
+// }
+
+// async function buildTruncatedPdf(sourceBytes, allowedPages) {
+//   const srcDoc = await PDFDocument.load(sourceBytes, {
+//     updateMetadata: false,
+//   });
+
+//   const outDoc = await PDFDocument.create();
+
+//   const pageCount = srcDoc.getPageCount();
+
+//   const indices = Array.from(
+//     {
+//       length: Math.min(allowedPages, pageCount),
+//     },
+//     (_, i) => i
+//   );
+
+//   const copiedPages = await outDoc.copyPages(
+//     srcDoc,
+//     indices
+//   );
+
+//   copiedPages.forEach((page) => {
+//     outDoc.addPage(page);
+//   });
+
+//   return outDoc.save();
+// }
+
+// /**
+//  * Returns a Buffer containing the PDF that the user is
+//  * actually allowed to receive.
+//  *
+//  * Full access:
+//  *   Downloads the complete PDF from B2.
+//  *
+//  * Preview access:
+//  *   Downloads the PDF from B2, creates a truncated
+//  *   3-page PDF, and returns only those pages.
+//  */
+// async function getDeliverableBuffer(book, accessLevel) {
+//   if (!storageService.USE_B2) {
+//     throw new Error('Backblaze B2 storage is not configured.');
+//   }
+
+//   if (!book.pdf_path) {
+//     throw new Error('Book does not have a PDF path.');
+//   }
+
+//   // Full access
+//   if (accessLevel === 'full') {
+//     return await storageService.downloadFromB2(
+//       book.pdf_path
+//     );
+//   }
+
+//   // Preview access
+//   const allowedPages = Math.min(3, book.page_count);
+
+//   const cachePath = previewCachePath(
+//     book.id,
+//     allowedPages
+//   );
+
+//   // Use local preview cache if it exists.
+//   try {
+//     await fs.promises.access(
+//       cachePath,
+//       fs.constants.R_OK
+//     );
+
+//     return await fs.promises.readFile(cachePath);
+//   } catch {
+//     // Preview does not exist yet.
+//   }
+
+//   // Download original PDF from B2.
+//   const sourceBytes =
+//     await storageService.downloadFromB2(
+//       book.pdf_path
+//     );
+
+//   // Create a genuinely truncated PDF.
+//   const truncatedBytes =
+//     await buildTruncatedPdf(
+//       sourceBytes,
+//       allowedPages
+//     );
+
+//   // Cache preview locally.
+//   await fs.promises.writeFile(
+//     cachePath,
+//     truncatedBytes
+//   );
+
+//   return truncatedBytes;
+// }
+
+// function invalidatePreviewCache(bookId) {
+//   fs.promises
+//     .readdir(PREVIEWS_DIR)
+//     .then((files) => {
+//       files
+//         .filter((file) =>
+//           file.startsWith(`${bookId}-`)
+//         )
+//         .forEach((file) =>
+//           storageService.deleteIfExists(
+//             path.join(PREVIEWS_DIR, file)
+//           )
+//         );
+//     })
+//     .catch(() => {});
+// }
+
+// module.exports = {
+//   getDeliverableBuffer,
+//   invalidatePreviewCache,
+// };
+
+
+
+
+
+
 
 const fs = require('fs');
 const path = require('path');
@@ -409,117 +553,61 @@ async function buildTruncatedPdf(sourceBytes, allowedPages) {
   const srcDoc = await PDFDocument.load(sourceBytes, {
     updateMetadata: false,
   });
-
   const outDoc = await PDFDocument.create();
-
   const pageCount = srcDoc.getPageCount();
-
   const indices = Array.from(
-    {
-      length: Math.min(allowedPages, pageCount),
-    },
+    { length: Math.min(allowedPages, pageCount) },
     (_, i) => i
   );
-
-  const copiedPages = await outDoc.copyPages(
-    srcDoc,
-    indices
-  );
-
-  copiedPages.forEach((page) => {
-    outDoc.addPage(page);
-  });
-
+  const copiedPages = await outDoc.copyPages(srcDoc, indices);
+  copiedPages.forEach((page) => { outDoc.addPage(page); });
   return outDoc.save();
 }
 
-/**
- * Returns a Buffer containing the PDF that the user is
- * actually allowed to receive.
- *
- * Full access:
- *   Downloads the complete PDF from B2.
- *
- * Preview access:
- *   Downloads the PDF from B2, creates a truncated
- *   3-page PDF, and returns only those pages.
- */
+// NAYA FUNCTION: Full book ke liye tez CDN link
+function getCdnUrlForBook(book) {
+  if (!book.pdf_path) {
+    throw new Error('Book does not have a PDF path.');
+  }
+  return storageService.getCdnUrl(book.pdf_path);
+}
+
 async function getDeliverableBuffer(book, accessLevel) {
   if (!storageService.USE_B2) {
     throw new Error('Backblaze B2 storage is not configured.');
   }
-
   if (!book.pdf_path) {
     throw new Error('Book does not have a PDF path.');
   }
 
-  // Full access
   if (accessLevel === 'full') {
-    return await storageService.downloadFromB2(
-      book.pdf_path
-    );
+    return await storageService.downloadFromB2(book.pdf_path);
   }
 
-  // Preview access
   const allowedPages = Math.min(3, book.page_count);
+  const cachePath = previewCachePath(book.id, allowedPages);
 
-  const cachePath = previewCachePath(
-    book.id,
-    allowedPages
-  );
-
-  // Use local preview cache if it exists.
   try {
-    await fs.promises.access(
-      cachePath,
-      fs.constants.R_OK
-    );
-
+    await fs.promises.access(cachePath, fs.constants.R_OK);
     return await fs.promises.readFile(cachePath);
-  } catch {
-    // Preview does not exist yet.
-  }
+  } catch {}
 
-  // Download original PDF from B2.
-  const sourceBytes =
-    await storageService.downloadFromB2(
-      book.pdf_path
-    );
-
-  // Create a genuinely truncated PDF.
-  const truncatedBytes =
-    await buildTruncatedPdf(
-      sourceBytes,
-      allowedPages
-    );
-
-  // Cache preview locally.
-  await fs.promises.writeFile(
-    cachePath,
-    truncatedBytes
-  );
-
+  const sourceBytes = await storageService.downloadFromB2(book.pdf_path);
+  const truncatedBytes = await buildTruncatedPdf(sourceBytes, allowedPages);
+  await fs.promises.writeFile(cachePath, truncatedBytes);
   return truncatedBytes;
 }
 
 function invalidatePreviewCache(bookId) {
-  fs.promises
-    .readdir(PREVIEWS_DIR)
-    .then((files) => {
-      files
-        .filter((file) =>
-          file.startsWith(`${bookId}-`)
-        )
-        .forEach((file) =>
-          storageService.deleteIfExists(
-            path.join(PREVIEWS_DIR, file)
-          )
-        );
-    })
-    .catch(() => {});
+  fs.promises.readdir(PREVIEWS_DIR).then((files) => {
+    files.filter((file) => file.startsWith(`${bookId}-`)).forEach((file) =>
+      storageService.deleteIfExists(path.join(PREVIEWS_DIR, file))
+    );
+  }).catch(() => {});
 }
 
 module.exports = {
   getDeliverableBuffer,
+  getCdnUrlForBook, // <-- NAYA
   invalidatePreviewCache,
 };

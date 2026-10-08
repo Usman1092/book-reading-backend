@@ -42,6 +42,9 @@ const refreshCookieOptions = {
   path: '/api/auth', // only sent to auth endpoints (refresh/logout)
 };
 
+
+
+
 module.exports = {
   signAccessToken,
   signRefreshToken,
