@@ -515,18 +515,28 @@ async function getPdf(req, res) {
   console.log('Access level:', access.level);
 
   // ===== YEH NAYA TEZ TAREEQA HAI =====
+  // if (access.level === 'full') {
+  //   const cdnUrl = pdfDeliveryService.getCdnUrlForBook(book);
+  //   console.log('Redirecting to CDN:', cdnUrl);
+    
+  //   // Agar frontend JSON chahta hai ?json=true
+  //   if (req.query.json === 'true') {
+  //     return res.json({ url: cdnUrl, accessLevel: 'full', pageCount: book.page_count });
+  //   }
+    
+  //   // Warna seedha CDN par redirect - sab se tez, frontend change ki zaroorat nahi
+  //   return res.redirect(302, cdnUrl);
+  // }
   if (access.level === 'full') {
-    const cdnUrl = pdfDeliveryService.getCdnUrlForBook(book);
-    console.log('Redirecting to CDN:', cdnUrl);
-    
-    // Agar frontend JSON chahta hai ?json=true
-    if (req.query.json === 'true') {
-      return res.json({ url: cdnUrl, accessLevel: 'full', pageCount: book.page_count });
-    }
-    
-    // Warna seedha CDN par redirect - sab se tez, frontend change ki zaroorat nahi
-    return res.redirect(302, cdnUrl);
-  }
+  const cdnUrl = pdfDeliveryService.getCdnUrlForBook(book);
+
+  // JSON wala tareeqa sab se best hai - CORS issue khatam
+  return res.json({
+    url: cdnUrl,
+    accessLevel: 'full',
+    pageCount: book.page_count
+  });
+}
 
   // Preview ke liye purana tareeqa (3 pages)
   console.log('Preview access - building truncated PDF');
