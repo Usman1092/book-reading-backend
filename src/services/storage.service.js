@@ -259,6 +259,12 @@ async function uploadToB2(key, body, contentType = 'application/pdf') {
   );
 }
 
+// Ye function cover upload karega
+async function uploadCoverToB2(key, fileBuffer, mimeType) {
+  // Ye aapke uploadToB2 jaisa hi hai, bas key alag hogi
+  return await uploadToB2(key, fileBuffer, mimeType);
+}
+
 async function downloadFromB2(key) {
   if (!b2Client) {
     throw new Error('Backblaze B2 is not configured.');
@@ -305,6 +311,7 @@ module.exports = {
   BOOKS_DIR,
   COVERS_DIR, 
   uploadToB2,
+  uploadCoverToB2, // <-- isay export karna mat bhoolna
   downloadFromB2,
   deleteFromB2,
   generateStoredName,

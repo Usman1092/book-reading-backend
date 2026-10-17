@@ -572,6 +572,12 @@ function getCdnUrlForBook(book) {
   return storageService.getCdnUrl(book.pdf_path);
 }
 
+function getCdnUrlForCover(coverPath) {
+  if (!coverPath) {
+    return null;
+  }
+  return storageService.getCdnUrl(coverPath);
+}
 async function getDeliverableBuffer(book, accessLevel) {
   if (!storageService.USE_B2) {
     throw new Error('Backblaze B2 storage is not configured.');
@@ -609,5 +615,6 @@ function invalidatePreviewCache(bookId) {
 module.exports = {
   getDeliverableBuffer,
   getCdnUrlForBook, // <-- NAYA
+  getCdnUrlForCover, //for cover
   invalidatePreviewCache,
 };

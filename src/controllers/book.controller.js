@@ -95,71 +95,141 @@ async function getOne(req, res) {
 }
 
 // --- Admin ---
+// async function create(req, res) {
+//   const { title, author, description, categoryId } = req.body;
+//   const pdfFile = req.files?.pdf?.[0];
+//   const coverFile = req.files?.cover?.[0];
+
+//   if (!pdfFile) {
+//     throw new BadRequestError('A PDF file is required.');
+//   }
+
+//   let pageCount;
+//   let pdfBytes;
+
+//   try {
+//     console.log('STEP 1: About to read PDF');
+//     const result = await pdfService.readPdfAndGetPageCount(pdfFile.path);
+//     console.log('STEP 2: PDF read successfully');
+//     pageCount = result.pageCount;
+//     pdfBytes = result.bytes;
+//     console.log('STEP 3: Page count:', pageCount);
+//   } catch (err) {
+//     console.error('PDF READ/PARSE ERROR:', err);
+//     storageService.deleteIfExists(pdfFile.path);
+//     if (coverFile) storageService.deleteIfExists(coverFile.path);
+//     throw new BadRequestError('The uploaded file is not a valid PDF.');
+//   }
+
+//   let pdfRelativePath;
+//   try {
+//     console.log('STEP 5: About to upload PDF to Backblaze B2');
+//     pdfRelativePath = await uploadPdfToB2(pdfBytes);
+//     console.log('STEP 6: PDF uploaded to B2 successfully:', pdfRelativePath);
+//   } catch (err) {
+//     console.error('B2 UPLOAD ERROR:', err);
+//     storageService.deleteIfExists(pdfFile.path);
+//     if (coverFile) storageService.deleteIfExists(coverFile.path);
+//     throw new Error('Failed to store the PDF. Please try again.');
+//   }
+
+//   storageService.deleteIfExists(pdfFile.path);
+
+//   const coverRelativePath = coverFile
+//    ? path.join('covers', path.basename(coverFile.path))
+//     : null;
+
+//   console.log('STEP 7: About to save book in Neon');
+//   const book = await bookModel.create({
+//     title,
+//     author,
+//     description,
+//     categoryId: categoryId? Number(categoryId) : null,
+//     coverPath: coverRelativePath,
+//     pdfPath: pdfRelativePath,
+//     pageCount,
+//   });
+
+//   console.log('STEP 8: Book saved successfully in Neon');
+
+//   // === NEW: CACHE WARMING AFTER CREATE ===
+//   // Jaise hi book upload hui, Cloudflare cache garam kar do
+//   try {
+//     const cdnUrl = pdfDeliveryService.getCdnUrlForBook(book);
+//     warmCloudflareCache(cdnUrl);
+//   } catch (e) {
+//     console.log('Cache warm skip:', e.message);
+//   }
+
+//   res.status(201).json({ book });
+// }
 async function create(req, res) {
   const { title, author, description, categoryId } = req.body;
   const pdfFile = req.files?.pdf?.[0];
   const coverFile = req.files?.cover?.[0];
 
-  if (!pdfFile) {
-    throw new BadRequestError('A PDF file is required.');
-  }
+  if (!pdfFile) throw new BadRequestError('A PDF file is required.');
 
   let pageCount;
   let pdfBytes;
-
   try {
-    console.log('STEP 1: About to read PDF');
     const result = await pdfService.readPdfAndGetPageCount(pdfFile.path);
-    console.log('STEP 2: PDF read successfully');
     pageCount = result.pageCount;
     pdfBytes = result.bytes;
-    console.log('STEP 3: Page count:', pageCount);
   } catch (err) {
-    console.error('PDF READ/PARSE ERROR:', err);
     storageService.deleteIfExists(pdfFile.path);
     if (coverFile) storageService.deleteIfExists(coverFile.path);
     throw new BadRequestError('The uploaded file is not a valid PDF.');
   }
 
   let pdfRelativePath;
+  let coverRelativePath = null;
+
   try {
-    console.log('STEP 5: About to upload PDF to Backblaze B2');
+    console.log('STEP 5: Uploading PDF to B2...');
     pdfRelativePath = await uploadPdfToB2(pdfBytes);
-    console.log('STEP 6: PDF uploaded to B2 successfully:', pdfRelativePath);
+    console.log('PDF uploaded:', pdfRelativePath);
+
+    // === NEW: COVER KO BHI B2 PAR UPLOAD KARO ===
+    if (coverFile) {
+      console.log('STEP 5b: Uploading Cover to B2...');
+      const coverBuffer = await fs.promises.readFile(coverFile.path);
+      const ext = path.extname(coverFile.originalname) || '.jpg';
+      const coverKey = `covers/${crypto.randomUUID()}${ext}`;
+      const mime = coverFile.mimetype || 'image/jpeg';
+
+      await storageService.uploadToB2(coverKey, coverBuffer, mime);
+      coverRelativePath = coverKey;
+      console.log('Cover uploaded:', coverRelativePath);
+    }
+
   } catch (err) {
     console.error('B2 UPLOAD ERROR:', err);
     storageService.deleteIfExists(pdfFile.path);
     if (coverFile) storageService.deleteIfExists(coverFile.path);
-    throw new Error('Failed to store the PDF. Please try again.');
+    throw new Error('Failed to store files. Please try again.');
   }
 
+  // Local temp files delete karo
   storageService.deleteIfExists(pdfFile.path);
+  if (coverFile) storageService.deleteIfExists(coverFile.path);
 
-  const coverRelativePath = coverFile
-   ? path.join('covers', path.basename(coverFile.path))
-    : null;
-
-  console.log('STEP 7: About to save book in Neon');
+  console.log('STEP 7: Saving book in DB');
   const book = await bookModel.create({
     title,
     author,
     description,
     categoryId: categoryId? Number(categoryId) : null,
-    coverPath: coverRelativePath,
+    coverPath: coverRelativePath, // Ab ye B2 ka path hai: covers/xxx.jpg
     pdfPath: pdfRelativePath,
     pageCount,
   });
 
-  console.log('STEP 8: Book saved successfully in Neon');
-
-  // === NEW: CACHE WARMING AFTER CREATE ===
-  // Jaise hi book upload hui, Cloudflare cache garam kar do
+  // Cache warming for PDF (pehle wala)
   try {
     const cdnUrl = pdfDeliveryService.getCdnUrlForBook(book);
     warmCloudflareCache(cdnUrl);
-  } catch (e) {
-    console.log('Cache warm skip:', e.message);
-  }
+  } catch (e) {}
 
   res.status(201).json({ book });
 }
@@ -205,10 +275,29 @@ async function update(req, res) {
     pdfDeliveryService.invalidatePreviewCache(existing.id);
   }
 
-  if (coverFile) {
-    fields.cover_path = path.join('covers', path.basename(coverFile.path));
-    if (existing.cover_path) {
-      storageService.deleteIfExists(path.join(storageService.STORAGE_ROOT, existing.cover_path));
+  // if (coverFile) {
+  //   fields.cover_path = path.join('covers', path.basename(coverFile.path));
+  //   if (existing.cover_path) {
+  //     storageService.deleteIfExists(path.join(storageService.STORAGE_ROOT, existing.cover_path));
+  //   }
+  // }
+
+    if (coverFile) {
+    try {
+      const coverBuffer = await fs.promises.readFile(coverFile.path);
+      const ext = path.extname(coverFile.originalname) || '.jpg';
+      const coverKey = `covers/${crypto.randomUUID()}${ext}`;
+      const mime = coverFile.mimetype || 'image/jpeg';
+
+      await storageService.uploadToB2(coverKey, coverBuffer, mime);
+      fields.cover_path = coverKey;
+
+      // Purana cover B2 se delete karo
+      if (existing.cover_path && existing.cover_path.startsWith('covers/')) {
+        await storageService.deleteFromB2(existing.cover_path).catch(()=>{});
+      }
+    } finally {
+      storageService.deleteIfExists(coverFile.path);
     }
   }
 
